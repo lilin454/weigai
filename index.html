@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>違規登記系統</title>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; margin: 0; padding: 20px; }
+        h1, h2 { text-align: center; }
+        #loginForm, #registrationForm, #violationList, #userManagement { max-width: 500px; margin: 20px auto; padding: 20px; border: 1px solid #ddd; border-radius: 5px; }
+        label { display: block; margin-bottom: 5px; }
+        input, select, textarea { width: 100%; padding: 8px; margin-bottom: 10px; border: 1px solid #ddd; border-radius: 4px; }
+        button { background-color: #4CAF50; color: white; padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background-color: #45a049; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        .hidden { display: none; }
+        #homeButton { position: absolute; top: 10px; left: 10px; }
+        .modal { display: none; position: fixed; z-index: 1; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4); }
+        .modal-content { background-color: #fefefe; margin: 15% auto; padding: 20px; border: 1px solid #888; width: 300px; }
+        .close { color: #aaa; float: right; font-size: 28px; font-weight: bold; }
+        .close:hover, .close:focus { color: black; text-decoration: none; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <button id="homeButton" onclick="goHome()">回主頁</button>
+    <h1>違規登記系統</h1>
+
+    <!-- 登入表單 -->
+    <form id="loginForm">
+        <h2>用戶登入</h2>
+        <label for="username">用戶名：</label>
+        <input type="text" id="username" required>
+        <label for="password">密碼：</label>
+        <input type="password" id="password" required>
+        <button type="submit">登入</button>
+    </form>
+
+    <!-- 幹部登記表單 -->
+    <form id="registrationForm" class="hidden">
+        <h2>違規登記（幹部使用）</h2>
+        <label for="studentName">學生姓名：</label>
+        <input type="text" id="studentName" required>
+        
+        <label for="seatNumber">座號：</label>
+        <input type="number" id="seatNumber" required>
+        
+        <label for="violationType">違規類型：</label>
+        <select id="violationType" required>
+            <option value="">請選擇違規類型</option>
+            <option value="遲到">遲到</option>
+            <option value="未穿制服">未穿制服</option>
+            <option value="使用手機">使用手機</option>
+            <option value="其他">其他</option>
+        </select>
+        
+        <label for="violationDetails">違規詳情：</label>
+        <textarea id="violationDetails" rows="4" required></textarea>
+        
+        <button type="submit">提交違規紀錄</button>
+    </form>
+
+    <!-- 老師管理界面 -->
+    <div id="teacherPanel" class="hidden">
+        <h2>教師管理面板</h2>
+        <button id="showViolationList">查看違規記錄</button>
+        <button id="showUserManagement">管理用戶</button>
+    </div>
+
+    <!-- 老師核銷清單 -->
+    <div id="violationList" class="hidden">
+        <h2>違規核銷清單</h2>
+        <button id="exportExcel">匯出 Excel</button>
+        <table>
+            <thead>
+                <tr>
+                    <th>學生姓名</th>
+                    <th>座號</th>
+                    <th>違規類型</th>
+                    <th>違規詳情</th>
+                    <th>狀態</th>
+                    <th>核准人</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="violationTableBody">
+                <!-- 違規記錄將在這裡動態添加 -->
+            </tbody>
+        </table>
+    </div>
+
+    <!-- 用戶管理界面 -->
+    <div id="userManagement" class="hidden">
+        <h2>用戶管理</h2>
+        <form id="addUserForm">
+            <h3>新增用戶</h3>
+            <label for="newUsername">用戶名：</label>
+            <input type="text" id="newUsername" required>
+            <label for="newPassword">密碼：</label>
+            <input type="password" id="newPassword" required>
+            <button type="submit">新增用戶</button>
+        </form>
+        <h3>現有用戶</h3>
+        <table id="userTable">
+            <thead>
+                <tr>
+                    <th>用戶名</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- 用戶列表將在這裡動態添加 -->
+            </tbody>
+        </table>
+    </div>
+
+    <!-- 核准模態框 -->
+    <div id="approveModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>核准違規記錄</h2>
+            <form id="approveForm">
+                <label for="approverName">核准人姓名：</label>
+                <input type="text" id="approverName" required>
+                <button type="submit">確認核准</button>
+            </form>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.16.9/xlsx.full.min.js"></script>
+    <script>
+        let currentUser = null;
+        let users = JSON.parse(localStorage.getItem('users')) || {
+            'teacher': { password: 'teacherpass', role: 'teacher' }
+        };
+        let violations = JSON.parse(localStorage.getItem('violations')) || [];
+        let currentViolationIndex = -1;
+
+        function saveData() {
+            localStorage.setItem('users', JSON.stringify(users));
+            localStorage.setItem('violations', JSON.stringify(violations));
+        }
+
+        function goHome() {
+            document.getElementById('loginForm').classList.remove('hidden');
+            document.getElementById('registrationForm').classList.add('hidden');
+            document.getElementById('teacherPanel').classList.add('hidden');
+            document.getElementById('violationList').classList.add('hidden');
+            document.getElementById('userManagement').classList.add('hidden');
+            currentUser = null;
+        }
+
+        document.getElementById('loginForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            
+            if (users[username] && users[username].password === password) {
+                currentUser = { name: username, role: users[username].role };
+                document.getElementById('loginForm').classList.add('hidden');
+                if (currentUser.role === 'teacher') {
+                    document.getElementById('teacherPanel').classList.remove('hidden');
+                } else {
+                    document.getElementById('registrationForm').classList.remove('hidden');
+                }
+            } else {
+                alert('用戶名或密碼錯誤');
+            }
+        });
+
+        document.getElementById('registrationForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const violation = {
+                studentName: document.getElementById('studentName').value,
+                seatNumber: document.getElementById('seatNumber').value,
+                violationType: document.getElementById('violationType').value,
+                violationDetails: document.getElementById('violationDetails').value,
+                status: 'pending',
+                approver: ''
+            };
+            
+            violations.push(violation);
+            saveData();
+            this.reset();
+            alert('違規記錄已提交');
+        });
+
+        function renderViolations() {
+            const tbody = document.getElementById('violationTableBody');
+            tbody.innerHTML = '';
+            violations.forEach((violation, index) => {
+                const row = tbody.insertRow();
+                row.innerHTML = `
+                    <td>${violation.studentName}</td>
+                    <td>${violation.seatNumber}</td>
+                    <td>${violation.violationType}</td>
+                    <td>${violation.violationDetails}</td>
+                    <td>${violation.status}</td>
+                    <td>${violation.approver}</td>
+                    <td>
+                        ${violation.status === 'pending' ? 
+                        `<button onclick="showApproveModal(${index})">核准</button>
+                         <button onclick="rejectViolation(${index})">駁回</button>` :
+                        ''}
+                    </td>
+                `;
+            });
+        }
+
+        function showApproveModal(index) {
+            currentViolationIndex = index;
+            document.getElementById('approveModal').style.display = 'block';
+        }
+
+        document.getElementById('approveForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const approverName = document.getElementById('approverName').value;
+            approveViolation(currentViolationIndex, approverName);
+            document.getElementById('approveModal').style.display = 'none';
+            this.reset();
+        });
+
+        function approveViolation(index, approverName) {
+            violations[index].status = '已核准';
+            violations[index].approver = approverName;
+            saveData();
+            renderViolations();
+        }
+
+        function rejectViolation(index) {
+            violations[index].status = '已駁回';
+            saveData();
+            renderViolations();
+        }
+
+        document.getElementById('exportExcel').addEventListener('click', function() {
+            const ws = XLSX.utils.json_to_sheet(violations);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Violations");
+            XLSX.writeFile(wb, "violations.xlsx");
+        });
+
+        document.getElementById('showViolationList').addEventListener('click', function() {
+            document.getElementById('violationList').classList.remove('hidden');
+            document.getElementById('userManagement').classList.add('hidden');
+            renderViolations();
+        });
+
+        document.getElementById('showUserManagement').addEventListener('click', function() {
+            document.getElementById('userManagement').classList.remove('hidden');
+            document.getElementById('violationList').classList.add('hidden');
+            renderUsers();
+        });
+
+        document.getElementById('addUserForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const newUsername = document.getElementById('newUsername').value;
+            const newPassword = document.getElementById('newPassword').value;
+            if (users[newUsername]) {
+                alert('用戶名已存在');
+            } else {
+                users[newUsername] = { password: newPassword, role: 'prefect' };
+                saveData();
+                alert('新用戶已添加');
+                renderUsers();
+                this.reset();
+            }
+        });
+
+        function renderUsers() {
+            const tbody = document.getElementById('userTable').querySelector('tbody');
+            tbody.innerHTML = '';
+            for (let username in users) {
+                if (users[username].role === 'prefect') {
+                    const row = tbody.insertRow();
+                    row.innerHTML = `
+                        <td>${username}</td>
+                        <td><button onclick="deleteUser('${username}')">刪除</button></td>
+                    `;
+                }
+            }
+        }
+
+        function deleteUser(username) {
+            if (confirm(`確定要刪除用戶 ${username} 嗎？`)) {
+                delete users[username];
+                saveData();
+                renderUsers();
+            }
+        }
+
+        // 關閉模態框
+        document.querySelector('.close').onclick = function() {
+            document.getElementById('approveModal').style.display = 'none';
+        }
+
+        window.onclick = function(event) {
+            if (event.target == document.getElementById('approveModal')) {
+                document.getElementById('approveModal').style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>
