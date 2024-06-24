@@ -133,6 +133,7 @@
         let currentUser = null;
         let users = JSON.parse(localStorage.getItem('users')) || {
             'teacher': { password: 'teacherpass', role: 'teacher' }
+            'z': { password: 'z', role: 'violations' }
         };
         let violations = JSON.parse(localStorage.getItem('violations')) || [];
         let currentViolationIndex = -1;
